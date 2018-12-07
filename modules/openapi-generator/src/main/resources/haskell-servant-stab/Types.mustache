@@ -1,0 +1,99 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-imports #-}
+{-# LANGUAGE InstanceSigs #-}
+
+module {{title}}.Types ({{#models}}{{#model}}{{^vendorExtensions.x-arr}}
+  {{classname}} (..),{{#vars}}{{#_enum}}
+  {{.}} (..),{{/_enum}}{{/vars}}{{/vendorExtensions.x-arr}}{{/model}}{{/models}}
+  ) where
+
+import Data.Time.Calendar (Day)
+import Data.Time.Clock.POSIX (POSIXTime)
+import Data.Char (toLower)
+import Data.List (stripPrefix)
+import Data.Maybe (fromMaybe)
+import Text.Read (readMaybe)
+import Data.Aeson (Value(..), FromJSON(..), ToJSON(..), genericToJSON, genericParseJSON, withText)
+import Data.Aeson.Types (Options(..), defaultOptions, Parser)
+import qualified Data.HashMap.Strict as HMS (lookup)
+import Data.Text (Text, unpack)
+import qualified Data.Text as T
+import qualified Data.Map as Map
+import GHC.Generics (Generic)
+import Data.Function ((&))
+import Network.HTTP.Types (Status(..){{#status}}, status{{statusCode}}{{/status}}{{#apiInfo}}{{#apis}}{{#operations}}{{#operation}}{{#vendorExtensions.x-additionalStatusCode}}, status{{.}}{{/vendorExtensions.x-additionalStatusCode}}{{/operation}}{{/operations}}{{/apis}}{{/apiInfo}})
+import Servant.Checked.Exceptions (ErrStatus(..))
+{{#imports}}import {{import}}
+{{/imports}}
+
+{{#apiInfo}}{{#status}}-- common status code{{/status}}{{#status}}
+data {{name}} = {{name}} deriving (Eq, Read, Show)
+instance ToJSON {{name}} where
+  toJSON :: {{name}} -> Value
+  toJSON _ = toJSON . show $ "{{& errMessage}}"
+instance FromJSON {{name}} where
+  parseJSON :: Value -> Parser {{name}}
+  parseJSON = withText "{{name}}" $
+    maybe (fail "could not parse as {{name}}") pure . readMaybe . unpack
+instance ErrStatus {{name}} where
+  toErrStatus :: {{name}} -> Status
+  toErrStatus _ = status{{statusCode}}
+{{/status}}{{/apiInfo}}
+{{#apiInfo}}{{#apis}}{{#operations}}{{#operation}}{{#vendorExtensions.x-ad-hocStatus}}-- {{operationId}} ad-hoc status code{{/vendorExtensions.x-ad-hocStatus}}{{#vendorExtensions.x-ad-hocStatus}}
+data {{name}} = {{name}} deriving (Eq, Read, Show)
+instance ToJSON {{name}} where
+  toJSON :: {{name}} -> Value
+  toJSON _ = toJSON . show $ "{{& errMessage}}"
+instance FromJSON {{name}} where
+  parseJSON :: Value -> Parser {{name}}
+  parseJSON = withText "{{name}}" $
+    maybe (fail "could not parse as {{name}}") pure . readMaybe . unpack
+instance ErrStatus {{name}} where
+  toErrStatus :: {{name}} -> Status
+  toErrStatus _ = status{{statusCode}}
+{{/vendorExtensions.x-ad-hocStatus}}{{/operation}}{{/operations}}{{/apis}}{{/apiInfo}}
+{{#models}}{{#model}}{{^vendorExtensions.x-errType}}{{^vendorExtensions.x-arr}}
+-- | {{description}} {{operationId}}
+{{^vendorExtensions.x-customNewtype}}{{^parent}}data {{classname}} = {{classname}}
+  { {{#vars}}{{& name}} :: {{#_enum}}{{& vendorExtensions.x-nameUpper}}{{/_enum}}{{^_enum}}{{datatype}}{{/_enum}} -- ^ {{& description}}{{#hasMore}}
+  , {{/hasMore}}{{/vars}}
+  }deriving (Show, Eq, Generic)
+instance FromJSON {{classname}} where
+  parseJSON = genericParseJSON (removeFieldLabelPrefix "{{prefix}}")
+instance ToJSON {{classname}} where
+  toJSON = genericToJSON (removeFieldLabelPrefix "{{prefix}}")
+{{#vars}}{{#_enum}}
+data {{& vendorExtensions.x-nameUpper}} = {{#_enum}}{{.}}{{#hasMore}} | {{/hasMore}}{{/_enum}}deriving (Eq, Generic)
+instance Show {{& vendorExtensions.x-nameUpper}} where{{#_enum}}
+  show {{ _enum}} = "{{.}}"{{/_enum}}
+instance ToJSON {{& vendorExtensions.x-nameUpper}} where
+  toJSON = toJSON . show
+instance FromJSON {{& vendorExtensions.x-nameUpper}} where
+  parseJSON (String t) = fromString (unpack t)
+        where fromString :: String -> Parser {{& vendorExtensions.x-nameUpper}}{{#_enum}}
+              fromString "{{.}}" = pure {{ _enum}}{{/_enum}}
+              fromString _ = fail "not allowed value"
+  parseJSON _ = fail "not allowed value"{{/_enum}}{{/vars}}
+{{/parent}}{{#parent}}
+newtype {{classname}} = {{classname}} { un{{classname}} :: {{parent}} }
+  deriving (Show, Eq, FromJSON, ToJSON, Generic)
+{{/parent}}{{/vendorExtensions.x-customNewtype}}{{#vendorExtensions.x-customNewtype}}
+newtype {{classname}} = {{classname}} {{.}} deriving (Show, Eq, FromJSON, ToJSON, Generic)
+{{/vendorExtensions.x-customNewtype}}{{/vendorExtensions.x-arr}}{{/vendorExtensions.x-errType}}{{/model}}{{/models}}
+
+-- Remove a field label prefix during JSON parsing.
+-- Also perform any replacements for special characters.
+removeFieldLabelPrefix :: String -> Options
+removeFieldLabelPrefix prefix =
+  defaultOptions
+  {fieldLabelModifier = fromMaybe (error ("did not find prefix " ++ prefix)) . headLower .  stripPrefix prefix . replaceSpecialChars}
+  where
+    headLower (Just (s:ss)) = Just $ (toLower s) : ss
+    headLower _ = Nothing
+    replaceSpecialChars field = foldl (&) field (map mkCharReplacement specialChars)
+    specialChars =
+      [ {{#specialCharReplacements}}("{{&char}}", "{{&replacement}}"){{#hasMore}}
+      , {{/hasMore}}{{/specialCharReplacements}}
+      ]
+    mkCharReplacement (replaceStr, searchStr) = T.unpack . T.replace (T.pack searchStr) (T.pack replaceStr) . T.pack

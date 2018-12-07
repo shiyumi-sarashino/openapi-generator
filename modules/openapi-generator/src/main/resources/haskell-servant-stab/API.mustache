@@ -1,0 +1,72 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE InstanceSigs #-}
+-- {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-imports -fcontext-stack=328 #-}
+
+module {{title}}.API
+  -- * Server
+  ( run{{title}}App
+  , {{title}}Api
+  ) where
+
+import {{title}}.Types
+
+import Data.Aeson (FromJSON(..), ToJSON(..), Value, withText)
+import Data.Aeson.Types (Parser)
+import Data.Proxy (Proxy(..))
+import Data.Text (Text, unpack)
+import Text.Read (readMaybe)
+import GHC.Generics (Generic)
+import Network.HTTP.Types (Status(..){{#status}}, status{{statusCode}}{{/status}})
+import Servant (Server, serve, Handler)
+import Servant.API
+import Servant.API.Verbs (StdMethod(..), Verb)
+import Servant.Checked.Exceptions (Envelope, ErrStatus(..), Throws, NoThrow, pureSuccEnvelope, pureErrEnvelope)
+import Web.FormUrlEncoded(ToForm, FromForm)
+import Network.Wai (Application)
+
+{{#apiInfo}}{{#apis}}{{#operations}}{{#operation}}{{#hasFormParams}}
+-- data {{vendorExtensions.x-formName}} = {{vendorExtensions.x-formName}}
+--   { {{#formParams}}{{vendorExtensions.x-formPrefix}}{{vendorExtensions.x-formParamName}} :: {{dataType}}{{#hasMore}}
+--   , {{/hasMore}}{{/formParams}}
+--   } deriving (Show, Eq, Generic)
+--
+-- instance FromFormUrlEncoded {{vendorExtensions.x-formName}}
+-- instance ToFormUrlEncoded {{vendorExtensions.x-formName}}
+--     {{/hasFormParams}}{{/operation}}{{/operations}}{{/apis}}{{/apiInfo}}
+
+{{#apiInfo}}
+-- | Servant type-level API, generated from the Swagger spec for {{title}}.
+type {{title}}Api
+      = {{#apis}}{{#operations}}{{#operation}}{{& vendorExtensions.x-routeType}} -- '{{operationId}}' route, tags: {{vendorExtensions.x-tags}}
+{{#hasMore}}    :<|> {{/hasMore}}{{/operation}}{{#hasMore}}    :<|> {{/hasMore}}{{/operations}}{{/apis}}{{/apiInfo}}
+
+{{#apiInfo}}{{#apis}}{{#operations}}{{#operation}}
+{{operationId}} :: {{& vendorExtensions.x-funcs}}
+{{operationId}} {{#vendorExtensions.x-args}}_ {{/vendorExtensions.x-args}}= pureSuccEnvelope $ {{& vendorExtensions.x-example}}
+{{#vendorExtensions.x-errStatus}}{{#vendorExtensions.x-opId-size}} {{/vendorExtensions.x-opId-size}} {{#vendorExtensions.x-args}}_ {{/vendorExtensions.x-args}}{{/vendorExtensions.x-errStatus}}= pureErrEnvelope $ {{vendorExtensions.x-errStatus}}
+{{/operation}}{{/operations}}{{/apis}}{{/apiInfo}}
+
+{{#apiInfo}}
+{{titleLower}}Server :: Server {{title}}Api
+{{titleLower}}Server
+       = {{#apis}}{{#operations}}{{#operation}}{{operationId}}
+{{#hasMore}}    :<|> {{/hasMore}}{{/operation}}{{#hasMore}}    :<|> {{/hasMore}}{{/operations}}{{/apis}}{{/apiInfo}}
+
+{{#apiInfo}}
+-- 'serve' comes from servant and hands you a WAI Application,
+-- which you can think of as an "abstract" web application,
+-- not yet a webserver.
+run{{title}}App :: Application
+run{{title}}App = serve (Proxy::Proxy {{title}}Api) {{titleLower}}Server
+{{/apiInfo}}
+
