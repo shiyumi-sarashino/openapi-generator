@@ -18,6 +18,7 @@
 package org.openapitools.codegen.languages;
 
 import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.core.util.Json;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.PathItem;
 import io.swagger.v3.oas.models.responses.ApiResponse;
@@ -54,11 +55,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.core.JsonGenerationException;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonMappingException;
 
 public class HaskellServantStabCodegen extends DefaultCodegen implements CodegenConfig {
     private static final Logger LOGGER = LoggerFactory.getLogger(HaskellServantStabCodegen.class);
@@ -759,7 +755,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
         List<Map<String, Object>> adhocStatus = new ArrayList<>();
         List<Integer> adStatusCode = new ArrayList<>();
         boolean not2xx = false;
-        boolean jsonEx = false;
+        boolean exExist = false;
         ApiResponses resps = operation.getResponses();
 
         for(String key : resps.keySet()){
@@ -769,6 +765,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                     && resp.getContent().get("application/json").getSchema()!=null){
                 Schema s = resp.getContent().get("application/json").getSchema();
                 boolean arrayp = false;
+                ArrayList<String> type = null;
                 if (s instanceof ArraySchema) {
                     ArraySchema as = (ArraySchema) s;
                     s = as.getItems();
@@ -777,43 +774,40 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                 if(s.get$ref()!=null){
 
                     String ref = s.get$ref();
-                    ArrayList<String> type = typeNameReplacements.get(ref);
+                    type = typeNameReplacements.get(ref);
                     ArrayList<String> refls = new ArrayList(Arrays.asList(ref.split("/")));
                     String refName = refls.get(refls.size() - 1).toString();
                     s = schemas.get(refName);
-                    if(type != null){
-                        if(type.get(0).equals("ad-hoc") || type.get(0).equals("Err")){
-                            not2xx = true;
-                            if(type.get(0).equals("ad-hoc")){
-                                List<Integer> lastcs = (List<Integer>) additionalProperties.get("statusCode");
-                                // and add to additionalProperties
-                                adhocStatus.add(errResp2status(resp, schemas, null));
-                                List<Integer> scs = (List<Integer>) additionalProperties.get("statusCode");
-                                for(Integer sc : scs.subList(lastcs.size(),scs.size())){
-                                    adStatusCode.add(sc);
-                                }
-                            }
-                            path.add("Throws " + camelize(fixModelChars(type.get(1))));
-                            errStatus.add(camelize(fixModelChars(type.get(1))));
-                        } else {
-                            returnType = type.get(1);
-                            if(arrayp){
-                                returnType = "[" + returnType + "]";
+                }
+                if(type != null){
+                    if(type.get(0).equals("ad-hoc") || type.get(0).equals("Err")){
+                        not2xx = true;
+                        if(type.get(0).equals("ad-hoc")){
+                            List<Integer> lastcs = (List<Integer>) additionalProperties.get("statusCode");
+                            // and add to additionalProperties
+                            adhocStatus.add(errResp2status(resp, schemas, null));
+                            List<Integer> scs = (List<Integer>) additionalProperties.get("statusCode");
+                            for(Integer sc : scs.subList(lastcs.size(),scs.size())){
+                                adStatusCode.add(sc);
                             }
                         }
+                        path.add("Throws " + camelize(fixModelChars(type.get(1))));
+                        errStatus.add(camelize(fixModelChars(type.get(1))));
+                    } else {
+                        returnType = type.get(1);
+                        if(arrayp){
+                            returnType = "[" + returnType + "]";
+                        }
                     }
+                }
+                if(Integer.parseInt(key)/100 == 2){
                     if(s.getExample() != null){
                         Object ex = s.getExample();
                         String example = returnType + makeExEnvelope(ex);
-                        ObjectMapper mapper = new ObjectMapper();
-                        try{
-                            example = mapper.writeValueAsString(ex);
-                        } catch (JsonProcessingException e) {
-                            example =null;
-                            e.printStackTrace();
-                        } catch (IOException e) {
-                            example =null;
-                            e.printStackTrace();
+                        if (typeMapping.containsKey(s.getType())){
+                            example = ex.toString();
+                        } else {
+                            example = Json.pretty(ex);
                         }
                         if(example==null || example.equals("")){
                             op.vendorExtensions.put("x-example", "pureSuccEnvelope ()");
@@ -822,15 +816,16 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                             if(arrayp){
                                 op.vendorExtensions.put("x-example", "pureEnvelope . decode .fromString $ \"[" + example.replace("\n", "\\n").replace("\\\"", "\\\\\"").replace("\"", "\\\"") + "]\"");
                             }
-                            jsonEx = true;
+                            exExist = true;
                         }
-                    }else if(!jsonEx){
-                        op.vendorExtensions.put("x-example", "pureSuccEnvelope ()");
                     }
+                }
+                if(!exExist){
+                    op.vendorExtensions.put("x-example", "pureSuccEnvelope ()");
                 }
             }
         }
-        if(jsonEx){
+        if(exExist){
             op.vendorExtensions.put("x-example-type", "Maybe " + returnType + " -> " + "Handler (Envelope '" + errStatus.toString() + " " + returnType + ")");
         }
         op.vendorExtensions.put("x-ad-hocStatus", adhocStatus);

@@ -76,7 +76,8 @@ public class ExampleGenerator {
 
         if (responseSchema.getExample() != null && !(responseSchema.getExample() instanceof Map)) {
             LOGGER.warn("example value (array/primitive) not handled at the moment: " + responseSchema.getExample());
-            return null;
+            return generate(responseSchema.getExample(),
+                    new ArrayList<String>(producesInfo));
         }
 
         if (ModelUtils.isArraySchema(responseSchema)) { // array of schema
@@ -142,6 +143,38 @@ public class ExampleGenerator {
         }
         return output;
     }
+
+    private List<Map<String, String>> generate(Object example, List<String> mediaTypes) {
+        LOGGER.debug("debugging generate in ExampleGenerator");
+        List<Map<String, String>> output = new ArrayList<>();
+        Set<String> processedModels = new HashSet<>();
+        if (example != null) {
+            if (mediaTypes == null) {
+                // assume application/json for this
+                mediaTypes = Collections.singletonList(MIME_TYPE_JSON); // FIXME: a parameter should not be assigned. Also declare the methods parameters as 'final'.
+            }
+            for (String mediaType : mediaTypes) {
+                Map<String, String> kv = new HashMap<>();
+                kv.put(CONTENT_TYPE, mediaType);
+                if ((mediaType.startsWith(MIME_TYPE_JSON) || mediaType.contains("*/*"))) {
+                    // String example = Json.pretty(resolvePropertyToExample("", mediaType, property, processedModels));
+                    kv.put(EXAMPLE, Json.pretty(example));
+                    output.add(kv);
+                } else if (mediaType.startsWith(MIME_TYPE_XML)) {
+                    // something must be done
+                    // String example = new XmlExampleGenerator(this.examples).toXml(property);
+                }
+            }
+        }
+
+        if (output.size() == 0) {
+            Map<String, String> kv = new HashMap<>();
+            kv.put(OUTPUT, NONE);
+            output.add(kv);
+        }
+        return output;
+    }
+
 
     public List<Map<String, String>> generate(Map<String, Object> examples, List<String> mediaTypes, String modelName) {
         List<Map<String, String>> output = new ArrayList<>();
