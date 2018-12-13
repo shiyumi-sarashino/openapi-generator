@@ -63,6 +63,7 @@ public class ElmClientCodegen extends DefaultCodegen implements CodegenConfig {
 
     private static final String ELM_VERSION = "elmVersion";
     private static final String ELM_PREFIX_CUSTOM_TYPE_VARIANTS = "elmPrefixCustomTypeVariants";
+    private static final String ELM_ENABLE_CUSTOM_BASE_PATHS = "elmEnableCustomBasePaths";
     private static final String ENCODER = "elmEncoder";
     private static final String DECODER = "elmDecoder";
     private static final String DISCRIMINATOR_NAME = "discriminatorName";
@@ -130,7 +131,8 @@ public class ElmClientCodegen extends DefaultCodegen implements CodegenConfig {
                 Arrays.asList(
                         "Byte",
                         "DateOnly",
-                        "DateTime")
+                        "DateTime",
+                        "Uuid")
         );
 
         instantiationTypes.clear();
@@ -153,6 +155,7 @@ public class ElmClientCodegen extends DefaultCodegen implements CodegenConfig {
         typeMapping.put("ByteArray", "Byte");
         typeMapping.put("file", "String");
         typeMapping.put("binary", "String");
+        typeMapping.put("UUID", "Uuid");
 
         importMapping.clear();
 
@@ -166,6 +169,8 @@ public class ElmClientCodegen extends DefaultCodegen implements CodegenConfig {
         cliOptions.add(elmVersion);
         final CliOption elmPrefixCustomTypeVariants = CliOption.newBoolean(ELM_PREFIX_CUSTOM_TYPE_VARIANTS, "Prefix custom type variants");
         cliOptions.add(elmPrefixCustomTypeVariants);
+        final CliOption elmEnableCustomBasePaths = CliOption.newBoolean(ELM_ENABLE_CUSTOM_BASE_PATHS, "Enable setting the base path for each request");
+        cliOptions.add(elmEnableCustomBasePaths);
     }
 
     @Override
@@ -183,6 +188,11 @@ public class ElmClientCodegen extends DefaultCodegen implements CodegenConfig {
 
         if (additionalProperties.containsKey(ELM_PREFIX_CUSTOM_TYPE_VARIANTS)) {
             elmPrefixCustomTypeVariants = Boolean.TRUE.equals(Boolean.valueOf(additionalProperties.get(ELM_PREFIX_CUSTOM_TYPE_VARIANTS).toString()));
+        }
+
+        if (additionalProperties.containsKey(ELM_ENABLE_CUSTOM_BASE_PATHS)) {
+            final boolean enable = Boolean.TRUE.equals(Boolean.valueOf(additionalProperties.get(ELM_ENABLE_CUSTOM_BASE_PATHS).toString()));
+            additionalProperties.put("enableCustomBasePaths", enable);
         }
 
         if (StringUtils.isEmpty(System.getenv("ELM_POST_PROCESS_FILE"))) {
@@ -675,31 +685,31 @@ public class ElmClientCodegen extends DefaultCodegen implements CodegenConfig {
 
     private void addEncoderAndDecoder(final Map<String, Object> vendorExtensions, final String dataType, final DataTypeExposure dataTypeExposure) {
         final String baseName = org.openapitools.codegen.utils.StringUtils.camelize(dataType, true);
-        String encoderName;
+        String encodeName;
         String decoderName;
         switch (dataTypeExposure) {
             case EXPOSED:
                 decoderName = "decoder";
-                encoderName = "encoder";
+                encodeName = "encode";
                 break;
             case INTERNAL:
-                encoderName = baseName + "Encoder";
+                encodeName = "encode" + StringUtils.capitalize(baseName);
                 decoderName = baseName + "Decoder";
                 break;
             case EXTERNAL:
-                encoderName = dataType + ".encoder";
+                encodeName = dataType + ".encode";
                 decoderName = dataType + ".decoder";
                 break;
             case PRIMITIVE:
-                encoderName = "Encode." + baseName;
+                encodeName = "Encode." + baseName;
                 decoderName = "Decode." + baseName;
                 break;
             default:
-                encoderName = "";
+                encodeName = "";
                 decoderName = "";
         }
         if (!vendorExtensions.containsKey(ENCODER)) {
-            vendorExtensions.put(ENCODER, encoderName);
+            vendorExtensions.put(ENCODER, encodeName);
         }
         if (!vendorExtensions.containsKey(DECODER)) {
             vendorExtensions.put(DECODER, decoderName);
