@@ -5,11 +5,11 @@
 
 module {{title}}.Types ({{#models}}{{#model}}{{^vendorExtensions.x-arr}}
   {{classname}} (..),{{#vars}}{{#_enum}}
-  {{.}} (..),{{/_enum}}{{/vars}}{{/vendorExtensions.x-arr}}{{/model}}{{/models}}
+  {{vendorExtensions.x-nameUpper}} (..),{{/_enum}}{{/vars}}{{/vendorExtensions.x-arr}}{{/model}}{{/models}}
   ) where
 
 import Data.Time.Calendar (Day)
-import Data.Time.Clock.POSIX (POSIXTime)
+import Data.Time.Clock (UTCTime)
 import Data.Char (toLower)
 import Data.List (stripPrefix)
 import Data.Maybe (fromMaybe)
@@ -22,7 +22,7 @@ import qualified Data.Text as T
 import qualified Data.Map as Map
 import GHC.Generics (Generic)
 import Data.Function ((&))
-import Network.HTTP.Types (Status(..){{#status}}, status{{statusCode}}{{/status}}{{#apiInfo}}{{#apis}}{{#operations}}{{#operation}}{{#vendorExtensions.x-additionalStatusCode}}, status{{.}}{{/vendorExtensions.x-additionalStatusCode}}{{/operation}}{{/operations}}{{/apis}}{{/apiInfo}})
+import Network.HTTP.Types (Status(..){{#statusCode}}, status{{.}}{{/statusCode}}{{#apiInfo}}{{#apis}}{{#operations}}{{#operation}}{{#vendorExtensions.x-additionalStatusCode}}, status{{.}}{{/vendorExtensions.x-additionalStatusCode}}{{/operation}}{{/operations}}{{/apis}}{{/apiInfo}})
 import Servant.Checked.Exceptions (ErrStatus(..))
 {{#imports}}import {{import}}
 {{/imports}}
@@ -60,19 +60,19 @@ instance ErrStatus {{name}} where
   , {{/hasMore}}{{/vars}}
   }deriving (Show, Eq, Generic)
 instance FromJSON {{classname}} where
-  parseJSON = genericParseJSON (removeFieldLabelPrefix "{{prefix}}")
+  parseJSON = genericParseJSON (removeFieldLabelPrefix "{{vendorExtensions.x-prefix}}")
 instance ToJSON {{classname}} where
-  toJSON = genericToJSON (removeFieldLabelPrefix "{{prefix}}")
+  toJSON = genericToJSON (removeFieldLabelPrefix "{{vendorExtensions.x-prefix}}")
 {{#vars}}{{#_enum}}
-data {{& vendorExtensions.x-nameUpper}} = {{#_enum}}{{.}}{{#hasMore}} | {{/hasMore}}{{/_enum}}deriving (Eq, Generic)
-instance Show {{& vendorExtensions.x-nameUpper}} where{{#_enum}}
+data {{vendorExtensions.x-nameUpper}} = {{#_enum}}{{.}}{{#hasMore}} | {{/hasMore}}{{/_enum}}deriving (Eq, Generic)
+instance Show {{vendorExtensions.x-nameUpper}} where{{#_enum}}
   show {{ _enum}} = "{{.}}"{{/_enum}}
-instance ToJSON {{& vendorExtensions.x-nameUpper}} where
+instance ToJSON {{vendorExtensions.x-nameUpper}} where
   toJSON = toJSON . show
-instance FromJSON {{& vendorExtensions.x-nameUpper}} where
+instance FromJSON {{vendorExtensions.x-nameUpper}} where
   parseJSON (String t) = fromString (unpack t)
-        where fromString :: String -> Parser {{& vendorExtensions.x-nameUpper}}{{#_enum}}
-              fromString "{{.}}" = pure {{ _enum}}{{/_enum}}
+        where fromString :: String -> Parser {{vendorExtensions.x-nameUpper}}{{#_enum}}
+              fromString "{{.}}" = pure {{.}}{{/_enum}}
               fromString _ = fail "not allowed value"
   parseJSON _ = fail "not allowed value"{{/_enum}}{{/vars}}
 {{/parent}}{{#parent}}

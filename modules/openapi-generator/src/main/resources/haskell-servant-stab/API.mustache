@@ -20,13 +20,15 @@ module {{title}}.API
 
 import {{title}}.Types
 
-import Data.Aeson (FromJSON(..), ToJSON(..), Value, withText)
-import Data.Aeson.Types (Parser)
+import Data.Aeson (FromJSON(..), ToJSON(..), Value, withText, decode)
+import Data.Aeson.Types (Parser, parseJSON, parseMaybe)
 import Data.Proxy (Proxy(..))
 import Data.Text (Text, unpack)
+import Data.ByteString.Lazy.UTF8 (fromString)
+import Data.Time.Clock (UTCTime)
 import Text.Read (readMaybe)
 import GHC.Generics (Generic)
-import Network.HTTP.Types (Status(..){{#status}}, status{{statusCode}}{{/status}})
+import Network.HTTP.Types (Status(..){{#statusCode}}, status{{.}}{{/statusCode}})
 import Servant (Server, serve, Handler)
 import Servant.API
 import Servant.API.Verbs (StdMethod(..), Verb)
@@ -52,8 +54,12 @@ type {{title}}Api
 
 {{#apiInfo}}{{#apis}}{{#operations}}{{#operation}}
 {{operationId}} :: {{& vendorExtensions.x-funcs}}
-{{operationId}} {{#vendorExtensions.x-args}}_ {{/vendorExtensions.x-args}}= pureSuccEnvelope $ {{& vendorExtensions.x-example}}
-{{#vendorExtensions.x-errStatus}}{{#vendorExtensions.x-opId-size}} {{/vendorExtensions.x-opId-size}} {{#vendorExtensions.x-args}}_ {{/vendorExtensions.x-args}}{{/vendorExtensions.x-errStatus}}= pureErrEnvelope $ {{vendorExtensions.x-errStatus}}
+{{operationId}} {{#vendorExtensions.x-args}}_ {{/vendorExtensions.x-args}}= {{& vendorExtensions.x-example}}
+{{#vendorExtensions.x-example-type}}    where
+        pureEnvelope :: {{& vendorExtensions.x-example-type}}
+        pureEnvelope (Just a) = pureSuccEnvelope a
+        pureEnvelope Nothing = pureErrEnvelope {{vendorExtensions.x-errStatus}}
+{{/vendorExtensions.x-example-type}}{{#vendorExtensions.x-errStatus}}--{{operationId}} {{#vendorExtensions.x-args}}_ {{/vendorExtensions.x-args}}= pureErrEnvelope $ {{vendorExtensions.x-errStatus}}{{/vendorExtensions.x-errStatus}}
 {{/operation}}{{/operations}}{{/apis}}{{/apiInfo}}
 
 {{#apiInfo}}

@@ -57,6 +57,7 @@ import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.JsonGenerationException;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 
 public class HaskellServantStabCodegen extends DefaultCodegen implements CodegenConfig {
@@ -179,7 +180,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                         "List",
                         "FilePath",
                         "Day",
-                        "POSIXTime"
+                        "UTCTime"
                 )
         );
 
@@ -194,7 +195,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
         typeMapping.put("char", "Char");
         typeMapping.put("float","Float");
         typeMapping.put("double", "Double");
-        typeMapping.put("DateTime", "POSIXTime");
+        typeMapping.put("DateTime", "UTCTime");
         typeMapping.put("Date", "Day");
         typeMapping.put("file", "FilePath");
         typeMapping.put("binary", "FilePath");
@@ -317,36 +318,26 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                 && openAPI.getComponents().getSchemas() != null
                 && openAPI.getPaths() != null){
               Map<String, Schema> schemas = openAPI.getComponents().getSchemas();
+             if (openAPI.getPaths() != null) {
+                 for (String pathname : openAPI.getPaths().keySet()) {
+                     PathItem path = openAPI.getPaths().get(pathname);
+                     if (path.readOperations() != null) {
+                         for (Operation operation : path.readOperations()){
+                             makeTypeNameReplacements(operation, schemas, openAPI);
+                         }
+                     }
+                 }
+             }
              if (openAPI.getComponents().getResponses() != null){
                     Map<String, ApiResponse> apiResponses = openAPI.getComponents().getResponses();
                     List<Map<String, Object>> status = new ArrayList<>();
-                    List<Integer> statusCodes = new ArrayList<>();
                     for (String key : apiResponses.keySet()) {
                         ApiResponse apiResponse = apiResponses.get(key);
-                        status.add(errResp2status(apiResponse, schemas, null));
+                        status.add(errResp2status(apiResponse, schemas, openAPI));
                     }
-                    additionalProperties.put("statusCode", statusCodes);
                     additionalProperties.put("status", status);
               }
-            if (openAPI.getPaths() != null) {
-                for (String pathname : openAPI.getPaths().keySet()) {
-                    PathItem path = openAPI.getPaths().get(pathname);
-                    if (path.readOperations() != null) {
-                        for (Operation operation : path.readOperations()){
-                            makeTypeNameReplacements(operation, schemas, openAPI);
-                        }
-                    }
-                }
-                // for (String key : schemas.keySet()){
-                    // Schema schema = schemas.get(key);
-                    // ArrayList<String>type = typeNameReplacements.get("#/components/schemas/" + key);
-                    // if(type == null){
-                        // type = typeNameReplacements.get("#/components/requestBodies/" + key);
-                    // }
-                // }
-            }
         }
-        // LOGGER.info(typeNameReplacements.get("#/components/schemas/media") + " hit!!!");
         super.preprocessOpenAPI(openAPI);
     }
 
@@ -525,7 +516,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
         return firstLetterToUpper(errType);
     }
 
-    private Map<String, Object> errResp2status(ApiResponse apiResponse,Map<String, Schema> schemas, CodegenOperation op){
+    private Map<String, Object> errResp2status(ApiResponse apiResponse,Map<String, Schema> schemas, OpenAPI openAPI){
         Map<String, Object> o = new HashMap<>();
         Schema schema = new Schema();
         if( apiResponse.getDescription()!=null
@@ -533,45 +524,56 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                 && apiResponse.getContent().get("application/json")!=null
                 && apiResponse.getContent().get("application/json").getSchema()!=null){
             Schema json = apiResponse.getContent().get("application/json").getSchema();
-            if(json.get$ref()!=null){
-                String ref = json.get$ref();
-                ArrayList<String> refls = new ArrayList(Arrays.asList(ref.split("/")));
-                ref = refls.get(refls.size() - 1).toString();
-                json = schemas.get(ref);
-            }
             List<String> sd = new ArrayList<>();
             Integer size = 0;
             String errType = "";
             String statusCode = "";
+            if(json.get$ref()!=null){
+                String ref = json.get$ref();
+                if(typeNameReplacements.get(ref) != null){
+                    errType = typeNameReplacements.get(ref).get(1);
+                }
+                ArrayList<String> refls = new ArrayList(Arrays.asList(ref.split("/")));
+                ref = refls.get(refls.size() - 1).toString();
+                json = schemas.get(ref);
+            }
             if(apiResponse.getDescription() != null){
                 sd = Arrays.asList(apiResponse.getDescription().split("\\s+|\\n+"));
                 size = sd.size();
                 errType = descriptionToErrType(apiResponse.getDescription());
             }
-            for(Integer i=0; i<size; i++){
-                if(op != null
-                        &&sd.get(i).equals("-StatusCode") && sd.get(i+1) != null){
-                    statusCode = sd.get(i+1);
-                    try
-                    {
-                        Integer stcd = Integer.parseInt(statusCode);
-                        List<Integer> scs = (List<Integer>) additionalProperties.get("statusCode");
-                        Boolean orgn = true;
-                        for(Integer sc : scs){
-                            if(stcd.equals(sc)){
-                                orgn = false;
+            if(!sd.contains("-StatusCode")){
+                LOGGER.error("common err resporses' description must have -StatusCode.");
+            }else if(openAPI != null){
+                for(Integer i=0; i<size; i++){
+                    if(sd.get(i).equals("-StatusCode") && sd.get(i+1) != null){
+                        statusCode = sd.get(i+1);
+                        try
+                        {
+                            Integer stcd = Integer.parseInt(statusCode);
+                            List<Integer> scs = (List<Integer>) additionalProperties.get("statusCode");
+                            Boolean orgn = true;
+                            if(scs != null){
+                                for(Integer sc : scs){
+                                    if(stcd.equals(sc)){
+                                        orgn = false;
+                                        break;
+                                    }
+                                }
+                                if(orgn){
+                                    scs.add(stcd);
+                                }
+                                additionalProperties.put("statusCode", scs);
+                            }else{
+                                additionalProperties.put("statusCode", new ArrayList<Integer>(Arrays.asList(stcd)));
                             }
                         }
-                        if(orgn){
-                            scs.add(stcd);
+                        catch (NumberFormatException ex)
+                        {
+                            LOGGER.error(statusCode + ": -StatusCode should be status code number.");
                         }
-                        additionalProperties.put("statusCode", scs);
+                        break;
                     }
-                    catch (NumberFormatException ex)
-                    {
-                        LOGGER.error(statusCode + ": description should be status code number.");
-                    }
-                    break;
                 }
             }
             o.put("name", firstLetterToUpper(errType));
@@ -585,7 +587,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
             }
         }
         if(schema != null && schema.getExample() != null){
-            o.put("errMessage", schema.getExample().toString().replace("\n", "\\n"));
+            o.put("errMessage", schema.getExample().toString().replace("\n", "\\n").replace("\\\"", "\\\\\"").replace("\"", "\\\""));
         }
         return o;
     }
@@ -686,12 +688,10 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
           }
           Map<String, ApiResponse> apiResponses = openAPI.getComponents().getResponses();
           List<Map<String, Object>> status = new ArrayList<>();
-          List<Integer> statusCodes = new ArrayList<>();
           for (String key : apiResponses.keySet()) {
               ApiResponse apiResponse = apiResponses.get(key);
               status.add(errResp2status(apiResponse, schemas, null));
           }
-          additionalProperties.put("statusCode", statusCodes);
           additionalProperties.put("status", status);
     }
     @Override
@@ -759,63 +759,79 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
         List<Map<String, Object>> adhocStatus = new ArrayList<>();
         List<Integer> adStatusCode = new ArrayList<>();
         boolean not2xx = false;
+        boolean jsonEx = false;
         ApiResponses resps = operation.getResponses();
 
         for(String key : resps.keySet()){
             ApiResponse resp = resps.get(key);
             if(resp.getContent()!=null
                     && resp.getContent().get("application/json")!=null
-                    && resp.getContent().get("application/json").getSchema()!=null
-                    && resp.getContent().get("application/json").getSchema().get$ref()!=null){
+                    && resp.getContent().get("application/json").getSchema()!=null){
+                Schema s = resp.getContent().get("application/json").getSchema();
+                boolean arrayp = false;
+                if (s instanceof ArraySchema) {
+                    ArraySchema as = (ArraySchema) s;
+                    s = as.getItems();
+                    arrayp = true;
+                }
+                if(s.get$ref()!=null){
 
-                String ref = resp.getContent().get("application/json").getSchema().get$ref();
-                ArrayList<String> type = typeNameReplacements.get(ref);
-                ArrayList<String> refls = new ArrayList(Arrays.asList(ref.split("/")));
-                ref = refls.get(refls.size() - 1).toString();
-                Schema s = schemas.get(ref);
-                if(type != null){
-                    if(type.get(0).equals("ad-hoc") || type.get(0).equals("Err")){
-                        if(type.get(0).equals("ad-hoc")){
-                            List<Integer> lastcs = (List<Integer>) additionalProperties.get("statusCode");
-                            // and add to additionalProperties
-                            adhocStatus.add(errResp2status(resp, schemas, op));
-                            List<Integer> scs = (List<Integer>) additionalProperties.get("statusCode");
-                            for(Integer sc : scs.subList(lastcs.size(),scs.size())){
-                                adStatusCode.add(sc);
+                    String ref = s.get$ref();
+                    ArrayList<String> type = typeNameReplacements.get(ref);
+                    ArrayList<String> refls = new ArrayList(Arrays.asList(ref.split("/")));
+                    String refName = refls.get(refls.size() - 1).toString();
+                    s = schemas.get(refName);
+                    if(type != null){
+                        if(type.get(0).equals("ad-hoc") || type.get(0).equals("Err")){
+                            not2xx = true;
+                            if(type.get(0).equals("ad-hoc")){
+                                List<Integer> lastcs = (List<Integer>) additionalProperties.get("statusCode");
+                                // and add to additionalProperties
+                                adhocStatus.add(errResp2status(resp, schemas, null));
+                                List<Integer> scs = (List<Integer>) additionalProperties.get("statusCode");
+                                for(Integer sc : scs.subList(lastcs.size(),scs.size())){
+                                    adStatusCode.add(sc);
+                                }
+                            }
+                            path.add("Throws " + camelize(fixModelChars(type.get(1))));
+                            errStatus.add(camelize(fixModelChars(type.get(1))));
+                        } else {
+                            returnType = type.get(1);
+                            if(arrayp){
+                                returnType = "[" + returnType + "]";
                             }
                         }
-                        path.add("Throws " + camelize(fixModelChars(type.get(1))));
-                        errStatus.add(camelize(fixModelChars(type.get(1))));
-                    }else{
-                        boolean bracket = false;
-                        returnType = camelize(fixModelChars(type.get(1)));
-                        if (s instanceof ArraySchema) {
-                            ArraySchema as = (ArraySchema) s;
-                            s = as.getItems();
-                            bracket = true;
+                    }
+                    if(s.getExample() != null){
+                        Object ex = s.getExample();
+                        String example = returnType + makeExEnvelope(ex);
+                        ObjectMapper mapper = new ObjectMapper();
+                        try{
+                            example = mapper.writeValueAsString(ex);
+                        } catch (JsonProcessingException e) {
+                            example =null;
+                            e.printStackTrace();
+                        } catch (IOException e) {
+                            example =null;
+                            e.printStackTrace();
                         }
-                        if(bracket){
-                            returnType = "[" + camelize(fixModelChars(type.get(1))) + "]";
+                        if(example==null || example.equals("")){
+                            op.vendorExtensions.put("x-example", "pureSuccEnvelope ()");
+                        }else{
+                            op.vendorExtensions.put("x-example", "pureEnvelope . decode . fromString $ \"" + example.replace("\n", "\\n").replace("\\\"", "\\\\\"").replace("\"", "\\\"") + "\"");
+                            if(arrayp){
+                                op.vendorExtensions.put("x-example", "pureEnvelope . decode .fromString $ \"[" + example.replace("\n", "\\n").replace("\\\"", "\\\\\"").replace("\"", "\\\"") + "]\"");
+                            }
+                            jsonEx = true;
                         }
+                    }else if(!jsonEx){
+                        op.vendorExtensions.put("x-example", "pureSuccEnvelope ()");
                     }
                 }
-                if(s.getExample() != null){
-                    Object ex = s.getExample();
-                    String example = returnType + makeExEnvelope(ex);
-                    // LOGGER.info(ref + ": " + example);
-                    ObjectMapper mapper = new ObjectMapper();
-                    try{
-                        op.vendorExtensions.put("x-example", "parseMaybe parseJSON " + mapper.writeValueAsString(ex));
-
-                    } catch (JsonGenerationException e) {
-                        e.printStackTrace();
-                    } catch (JsonMappingException e) {
-                        e.printStackTrace();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-		}
-                }
             }
+        }
+        if(jsonEx){
+            op.vendorExtensions.put("x-example-type", "Maybe " + returnType + " -> " + "Handler (Envelope '" + errStatus.toString() + " " + returnType + ")");
         }
         op.vendorExtensions.put("x-ad-hocStatus", adhocStatus);
         op.vendorExtensions.put("x-additionalStatusCode", adStatusCode);
@@ -853,8 +869,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
             }else{
                 return " False";
             }
-        }else{
-        LOGGER.info(ex.getClass().getName());}
+        }
 
         String example = "";
         Object child = ex;
@@ -864,11 +879,9 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
         next.add(ex);
         Boolean break2 = false;
         while(next.size() != 0){
-            LOGGER.info("next");
             child = next.get(next.size()-1);
             next.remove(next.size()-1);
             while(child != null){
-                LOGGER.info("digging");
                 Integer nextsz=next.size();
                 if(child instanceof HashMap){
                     List<String> done = new ArrayList<String>();
@@ -909,12 +922,9 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                         }
                     }
                 } else if (child instanceof Object[]){
-                    LOGGER.info("object[]");
                     ArrayList<Object> childls = new ArrayList<Object>(Arrays.asList((Object[]) child));
                     for (Object el : childls){
-                    LOGGER.info("el" + el.toString());
                         if (el instanceof Object[]) {
-                            LOGGER.info("child object[] too" + el.toString());
                             next.add(childls.subList(1, childls.size()));
                             example = example + listHead.get(listHead.size()-1) + "[";
                             listHead.add(camelize(", "));
@@ -943,9 +953,9 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                 if(next.size() > 2){
                 String tailBracket = tail.remove(tail.size() -1);
                 example = example + tailBracket;
-                if(tailBracket.equals("]")){
-                    listHead.remove(listHead.size() -1);
-                }
+                    if(tailBracket.equals("]")){
+                        listHead.remove(listHead.size() -1);
+                    }
                 }
             }
         }
@@ -1033,21 +1043,31 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
             model.vendorExtensions.put("x-arr", true);
         }
         // Clean up the class name to remove invalid characters
-        model.classname = firstLetterToUpper(camelize(fixModelChars(model.classname),true));
+        model.classname = camelize(fixModelChars(model.classname));
         if(typeMapping.containsValue(model.classname)) {
             model.classname += "_";
         }
 
         // From the model name, compute the prefix for the fields.
         String prefix = camelize(model.classname, true);
-        prefix = "";
         for(CodegenProperty prop : model.vars) {
             if(prop.allowableValues != null) {
                 for(Integer i = 0; i < prop._enum.size(); i++){
                     prop._enum.set(i, fixOperatorChars(prop._enum.get(i)));
                 }
             }
-            prop.name = toVarName(prefix + camelize(fixOperatorChars(prop.name), true));
+            prop.name = toVarName(prefix + camelize(fixOperatorChars(prop.name)));
+            ArrayList<String> propType = typeNameReplacements.get("#/components/schemas/" + prop.getDatatype());
+            if(propType != null){
+                prop.setDatatype(propType.get(1));
+            }else{
+                propType = typeNameReplacements.get("#/components/schemas/" + firstLetterToLower(prop.getDatatype()));
+                if(propType != null){
+                    prop.setDatatype(propType.get(1));
+                }else{
+                    prop.setDatatype(camelize(fixModelChars(prop.getDatatype())));
+                }
+            }
             String nameUpper = firstLetterToUpper(fixOperatorChars(prop.name));
             prop.vendorExtensions.put("x-nameUpper", nameUpper);
         }
