@@ -1,11 +1,13 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-imports #-}
 {-# LANGUAGE InstanceSigs #-}
 
 module {{title}}.Types ({{#models}}{{#model}}{{^vendorExtensions.x-arr}}
-  {{classname}} (..),{{#vars}}{{#_enum}}
-  {{vendorExtensions.x-nameUpper}} (..),{{/_enum}}{{/vars}}{{/vendorExtensions.x-arr}}{{/model}}{{/models}}
+  {{classname}} (..),{{/vendorExtensions.x-arr}}{{/model}}{{/models}}{{#models}}{{#model}}{{^vendorExtensions.x-errType}}{{^vendorExtensions.x-arr}}{{#vars}}{{#_enum}}
+  {{vendorExtensions.x-nameUpper}} (..),{{/_enum}}{{/vars}}{{/vendorExtensions.x-arr}}{{/vendorExtensions.x-errType}}{{/model}}{{/models}}{{#unfortunateErrType}}
+  {{.}}(..),{{/unfortunateErrType}}
   ) where
 
 import Data.Time.Calendar (Day)
@@ -15,7 +17,7 @@ import Data.List (stripPrefix)
 import Data.Maybe (fromMaybe)
 import Text.Read (readMaybe)
 import Data.Aeson (Value(..), FromJSON(..), ToJSON(..), genericToJSON, genericParseJSON, withText)
-import Data.Aeson.Types (Options(..), defaultOptions, Parser)
+import Data.Aeson.Types (Options(..), defaultOptions, Parser, object, (.=))
 import qualified Data.HashMap.Strict as HMS (lookup)
 import Data.Text (Text, unpack)
 import qualified Data.Text as T
@@ -31,7 +33,7 @@ import Servant.Checked.Exceptions (ErrStatus(..))
 data {{name}} = {{name}} deriving (Eq, Read, Show)
 instance ToJSON {{name}} where
   toJSON :: {{name}} -> Value
-  toJSON _ = toJSON . show $ "{{& errMessage}}"
+  toJSON _ = {{& errMessage}}
 instance FromJSON {{name}} where
   parseJSON :: Value -> Parser {{name}}
   parseJSON = withText "{{name}}" $

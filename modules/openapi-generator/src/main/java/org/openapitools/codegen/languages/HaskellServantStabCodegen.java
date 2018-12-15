@@ -23,7 +23,12 @@ import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.PathItem;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.oas.models.responses.ApiResponses;
+import io.swagger.v3.oas.models.media.ObjectSchema;
 import io.swagger.v3.oas.models.media.ArraySchema;
+import io.swagger.v3.oas.models.media.StringSchema;
+import io.swagger.v3.oas.models.media.BooleanSchema;
+import io.swagger.v3.oas.models.media.IntegerSchema;
+import io.swagger.v3.oas.models.media.NumberSchema;
 import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.media.Content;
 import io.swagger.v3.oas.models.parameters.RequestBody;
@@ -94,6 +99,8 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
     }
 
     private Map<String, ArrayList<String>> typeNameReplacements = new HashMap<>();
+    private ArrayList<String> unfortunateErrType = new ArrayList<>();
+    private Map<String, ArrayList<String>> unfortunateErrTypeOp = new HashMap<String, ArrayList<String>>();
 
     public HaskellServantStabCodegen() {
         super();
@@ -319,10 +326,12 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                      PathItem path = openAPI.getPaths().get(pathname);
                      if (path.readOperations() != null) {
                          for (Operation operation : path.readOperations()){
-                             makeTypeNameReplacements(operation, schemas, openAPI);
+                             ArrayList<String> unfortunateErrType_ = makeTypeNameReplacements(operation, schemas, openAPI);
+                             unfortunateErrTypeOp.put(pathname, unfortunateErrType_);
                          }
                      }
                  }
+                 additionalProperties.put("unfortunateErrType", unfortunateErrType);
              }
              if (openAPI.getComponents().getResponses() != null){
                     Map<String, ApiResponse> apiResponses = openAPI.getComponents().getResponses();
@@ -514,7 +523,6 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
 
     private Map<String, Object> errResp2status(ApiResponse apiResponse,Map<String, Schema> schemas, OpenAPI openAPI){
         Map<String, Object> o = new HashMap<>();
-        Schema schema = new Schema();
         if( apiResponse.getDescription()!=null
                 && apiResponse.getContent()!=null
                 && apiResponse.getContent().get("application/json")!=null
@@ -524,6 +532,11 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
             Integer size = 0;
             String errType = "";
             String statusCode = "";
+            if(apiResponse.getDescription() != null){
+                sd = Arrays.asList(apiResponse.getDescription().split("\\s+|\\n+"));
+                size = sd.size();
+                errType = descriptionToErrType(apiResponse.getDescription());
+            }
             if(json.get$ref()!=null){
                 String ref = json.get$ref();
                 if(typeNameReplacements.get(ref) != null){
@@ -532,11 +545,6 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                 ArrayList<String> refls = new ArrayList(Arrays.asList(ref.split("/")));
                 ref = refls.get(refls.size() - 1).toString();
                 json = schemas.get(ref);
-            }
-            if(apiResponse.getDescription() != null){
-                sd = Arrays.asList(apiResponse.getDescription().split("\\s+|\\n+"));
-                size = sd.size();
-                errType = descriptionToErrType(apiResponse.getDescription());
             }
             if(!sd.contains("-StatusCode")){
                 LOGGER.error("common err resporses' description must have -StatusCode.");
@@ -574,121 +582,257 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
             }
             o.put("name", firstLetterToUpper(errType));
             o.put("statusCode", statusCode);
-
-            final Map<String, Schema> propertyMap = json.getProperties();
-            if(propertyMap!=null){
-                ArrayList<Schema> ss = new ArrayList<>(propertyMap.values());
-                //get schema from description in #/components/responses/{keyName}/content/schema/properties/{firstItem}
-                schema = ss.get(0);
-            }
-        }
-        if(schema != null && schema.getExample() != null){
-            o.put("errMessage", schema.getExample().toString().replace("\n", "\\n").replace("\\\"", "\\\\\"").replace("\"", "\\\""));
+            o.put("errMessage", makeErrEx(errType, json));
         }
         return o;
+    }
+
+    private String makeErrEx(String name, Schema ex){
+        if(ex.getExample() != null){
+            return "toJSON " + makeErrEx_(ex);
+        }
+        ArrayList<ArrayList<String>> example = new ArrayList<ArrayList<String>>();
+        example.add(new ArrayList<String>(Arrays.asList("","")));
+        List<Schema> next = new ArrayList<Schema>();
+        List<String> listHead = new ArrayList<String>();
+        List<String> tail = new ArrayList<String>();
+        boolean atFirst = true;
+        boolean nestedp;
+        next.add(ex);
+        while(next.size() != 0){
+            Schema child = next.get(next.size()-1);
+            next.remove(next.size()-1);
+            nestedp = false;
+            while(child != null){
+                if(atFirst){
+                    atFirst = false;
+                    nestedp = true;
+                }
+                if(child instanceof ArraySchema){
+                    Schema inner = ((ArraySchema) child).getItems();
+                    final Map<String, Schema> prop = child.getProperties();
+                    if (prop != null
+                            || inner instanceof ArraySchema) {
+                        example.add(new ArrayList<>(Arrays.asList("toJSONList [", "]")));
+                        child = inner;
+                        nestedp = true;
+                    } else {
+                        ArrayList<String> parent = example.get(example.size()-1);
+                        example.remove(example.size()-1);
+                        example.add(new ArrayList<String>(Arrays.asList(parent.get(0) + "toJSONList [" + makeErrEx_(inner) + "]" + parent.get(1), "")));
+                        child = null;
+                    }
+                }else{
+                    final Map<String, Schema> propertyMap = child.getProperties();
+                    if(propertyMap!=null){
+                        List<String> done = new ArrayList<String>();
+                        for(String key : propertyMap.keySet()){
+                            done.add(key);
+                            Schema prop = propertyMap.get(key);
+                            Map<String, Schema> rest = new HashMap<String, Schema>();
+                            for(String restKey : propertyMap.keySet()){
+                                if(!done.contains(restKey)){
+                                    rest.put(restKey, propertyMap.get(restKey));
+                                }
+                            }
+                            final Map<String, Schema> innerPropMap = prop.getProperties();
+                            if (prop instanceof ArraySchema
+                                || innerPropMap !=null){
+                                if(rest.isEmpty()){
+                                    ArrayList<String> parent = example.get(example.size()-1);
+                                    example.remove(example.size()-1);
+                                    if(nestedp){
+                                        example.add(new ArrayList<>(Arrays.asList(parent.get(0) + "object [\"" + key + "\".=", "]" + parent.get(1))));
+                                    }else{
+                                        example.add(new ArrayList<>(Arrays.asList(parent.get(0) + "\"" + key + "\".=", "]" + parent.get(1))));
+                                    }
+                                }else{
+                                    child.setProperties(rest);
+                                    next.add(child);
+                                    if(nestedp){
+                                        example.add(new ArrayList<String>(Arrays.asList("object [\"" + key + "\".=", ", ")));
+                                    }else{
+                                        example.add(new ArrayList<String>(Arrays.asList("\"" + key + "\".=", ", ")));
+                                    }
+                                }
+                                nestedp = true;
+                                child = prop;
+                                break;
+                            }else{
+                                ArrayList<String> parent = example.get(example.size()-1);
+                                example.remove(example.size()-1);
+                                if(rest.isEmpty()){
+                                    if(nestedp){
+                                        example.add(new ArrayList<String>(Arrays.asList(parent.get(0) + "object [\"" + key + "\".=" + makeErrEx_(prop) + "]" + parent.get(1), "")));
+                                    }else{
+                                        example.add(new ArrayList<String>(Arrays.asList(parent.get(0) + "\"" + key + "\".=" + makeErrEx_(prop) + "]" + parent.get(1), "")));
+                                    }
+                                    child = null;
+                                }else{
+                                    if(nestedp){
+                                        example.add(new ArrayList<String>(Arrays.asList(parent.get(0) + "object [\"" + key + "\".=" + makeErrEx_(prop) + ", ", parent.get(1))));
+                                        nestedp = false;
+                                    }else{
+                                        example.add(new ArrayList<String>(Arrays.asList(parent.get(0) + "\"" + key + "\".=" + makeErrEx_(prop) + ", ", parent.get(1))));
+                                    }
+                                }
+                            }
+                        }
+                    }else{
+                        ArrayList<String> parent = example.get(example.size()-1);
+                        example.remove(example.size()-1);
+                        example.add(new ArrayList<String>(Arrays.asList(parent.get(0) + makeErrEx_(child) + parent.get(1), "")));
+                        child = null;
+                    }
+                }
+            }
+        }
+        String aeson = "";
+        for (int i =  example.size() - 1; i>=0; i--){
+            ArrayList<String> htEx = example.get(i);
+            aeson = htEx.get(0) + aeson + htEx.get(1);
+        }
+        return aeson;
+    }
+
+    private String makeErrEx_(Schema ex){
+        if(ex.getExample() != null){
+            if(ex instanceof StringSchema){
+                 return "(\"" + ex.getExample().toString().replace("\n", "\\n").replace("\\\"", "\\\\\"").replace("\"", "\\\"") + "\" :: Text)";
+            }else if(ex instanceof IntegerSchema){
+                 return "(" + ex.getExample().toString() + " :: Int)";
+            }else if(ex instanceof NumberSchema){
+                 return "(" + ex.getExample().toString() + " :: Double)";
+            }else if(ex instanceof BooleanSchema){
+                if(ex.getExample().toString().equals("true")){
+                    return "(True :: Bool)";
+                }else{
+                    return "(False :: Bool)";
+                }
+            }else{
+                LOGGER.warn("cannot determine example type(if this message is called, it'll be ObjectSchema or ArraySchema.) example: " + ex.getExample().toString());
+            }
+        }
+        LOGGER.warn("getExample is null at schema: " + ex.toString());
+        return null;
     }
 
     private String ref2name(String ref){
         ArrayList<String> refls = new ArrayList(Arrays.asList(ref.split("/")));
         return refls.get(refls.size() - 1).toString();
     }
-    private void makeTypeNameReplacements(Operation operation, Map<String, Schema> schemas, OpenAPI openAPI){
-          if (operation.getTags() != null){
-              List<String> tags = new ArrayList<String>();
-              for (String word : operation.getTags()) {
-                  tags.add(firstLetterToUpper(word));
-              }
-              String tag = joinStrings("", tags);
-              operation.addExtension("x-tags", tag);
-          }
-          if (operation.getOperationId()!=null){
-              String opId = firstLetterToUpper(operation.getOperationId());
-              Map<String, ApiResponse> resps = operation.getResponses();
-              Set<String> resKeys = resps.keySet();
-              for(String key : resKeys){
-                  ApiResponse resp = resps.get(key);
-                  String type = "";
-                  Boolean errp = false;
-                  if(Integer.parseInt(key)/100 == 2){
-                      type = "-TypeName ";
-                      errp = false;
-                  }else{
-                      type = "-ErrType ";
-                      errp = true;
-                  }
+    private ArrayList<String> makeTypeNameReplacements(Operation operation, Map<String, Schema> schemas, OpenAPI openAPI){
+        ArrayList<String> unfortunateErrType_ = new ArrayList<String>();
+        if (operation.getTags() != null){
+            List<String> tags = new ArrayList<String>();
+            for (String word : operation.getTags()) {
+                tags.add(firstLetterToUpper(word));
+            }
+            String tag = joinStrings("", tags);
+            operation.addExtension("x-tags", tag);
+        }
+        if (operation.getOperationId()!=null){
+            String opId = firstLetterToUpper(operation.getOperationId());
+            Map<String, ApiResponse> resps = operation.getResponses();
+            Set<String> resKeys = resps.keySet();
+            for(String key : resKeys){
+                ApiResponse resp = resps.get(key);
+                String type = "";
+                Boolean errp = false;
+                if(key.equals("default")){
+                    break;
+                }
+                if(Integer.parseInt(key)/100 == 2){
+                    type = "-TypeName ";
+                    errp = false;
+                }else{
+                    type = "-ErrType ";
+                    errp = true;
+                }
 
-                  if(resp != null
-                          && resp.getContent()!=null
-                          && resp.getContent().get("application/json")!=null
-                          && resp.getContent().get("application/json").getSchema()!=null){
-                      Schema schm = resp.getContent().get("application/json").getSchema();
-                      String ref = resp.getContent().get("application/json").getSchema().get$ref();
-                      ArrayList<String> typeName = new ArrayList<String>();
-                      if(schm instanceof ArraySchema){
-                          ArraySchema arraySchema = (ArraySchema) schm;
-                          if (arraySchema.getItems().get$ref() != null){
-                            ref = arraySchema.getItems().get$ref();
-                          }
-                      }else if(resp.getContent().get("application/json").getSchema().get$ref()==null){
-                          ref = resp.getContent().get("application/json").getSchema().get$ref();
-                      }
-                      if(resp.getDescription() != null
-                          && resp.getDescription().contains(type)){
-                          if(errp){
-                              String errType = descriptionToErrTypeIIFnotAdHoc(resp.getDescription());
-                              if(errType.equals("ad-hoc")){
-                                  errType = descriptionToErrType(resp.getDescription());
-                                  typeName = new ArrayList<String>(Arrays.asList("ad-hoc", errType));
-                              }else{
-                                  typeName = new ArrayList<String>(Arrays.asList("Err", errType));
-                              }
-                          } else {
-                              typeName = new ArrayList<String>(Arrays.asList("Res", descriptionToType(resp.getDescription())));
-                          }
-                      } else {
-                          if(errp){
-                              typeName = new ArrayList<String>(Arrays.asList("ad-hoc", "Err" + opId));
-                          }else{
-                              typeName = new ArrayList<String>(Arrays.asList("Res", "Res" + opId));
-                          }
-                      }
-                      if (ref != null
-                              && !typeNameReplacements.keySet().contains(ref)
-                              && ref.contains("/inline_")){
-                          typeNameReplacements.put(ref, typeName);
-                      }
-                  }
-              }
-              if(operation.getRequestBody() != null){
-                  RequestBody s = operation.getRequestBody();
-                  String ref = s.get$ref();
-                  ArrayList<String> typeName = new ArrayList<String>();
-                  if( operation.getRequestBody().getContent()!=null
-                          && operation.getRequestBody().getContent().get("application/json")!=null
-                          && operation.getRequestBody().getContent().get("application/json").getSchema()!=null
-                          && operation.getRequestBody().getContent().get("application/json").getSchema().get$ref()!=null){
-                      ref = s.getContent().get("application/json").getSchema().get$ref();
-                  }
-                  if(s.getDescription() != null
-                          && s.getDescription().contains("-TypeName ")){
-                      typeName = new ArrayList<String>(Arrays.asList("Req" , descriptionToType(s.getDescription())));
-                  } else {
-                      typeName = new ArrayList<String>(Arrays.asList("Req", "ReqBody" + opId));
-                  }
-                  if (ref != null
-                          && !typeNameReplacements.keySet().contains(ref)
-                          && ref.contains("/inline_")){
-                      typeNameReplacements.put(ref, typeName);
-                  }
-              }
-          }
-          Map<String, ApiResponse> apiResponses = openAPI.getComponents().getResponses();
-          List<Map<String, Object>> status = new ArrayList<>();
-          for (String key : apiResponses.keySet()) {
-              ApiResponse apiResponse = apiResponses.get(key);
-              status.add(errResp2status(apiResponse, schemas, null));
-          }
-          additionalProperties.put("status", status);
+                if(resp != null
+                        && resp.getContent()!=null
+                        && resp.getContent().get("application/json")!=null
+                        && resp.getContent().get("application/json").getSchema()!=null){
+                    Schema schm = resp.getContent().get("application/json").getSchema();
+                    String ref = resp.getContent().get("application/json").getSchema().get$ref();
+                    ArrayList<String> typeName = new ArrayList<String>();
+                    if(schm instanceof ArraySchema){
+                        ArraySchema arraySchema = (ArraySchema) schm;
+                        if (arraySchema.getItems().get$ref() != null){
+                          ref = arraySchema.getItems().get$ref();
+                        }
+                    }else if(resp.getContent().get("application/json").getSchema().get$ref()==null){
+                        ref = resp.getContent().get("application/json").getSchema().get$ref();
+                    }
+                    if(resp.getDescription() != null
+                        && resp.getDescription().contains(type)){
+                        if(errp){
+                            String errType = descriptionToErrTypeIIFnotAdHoc(resp.getDescription());
+                            if(errType.equals("ad-hoc")){
+                                errType = descriptionToErrType(resp.getDescription());
+                                typeName = new ArrayList<String>(Arrays.asList("ad-hoc", errType));
+                            }else{
+                                typeName = new ArrayList<String>(Arrays.asList("Err", errType));
+                            }
+                            if (ref == null){
+                                if(!unfortunateErrType.contains(typeName.get(1))){
+                                    unfortunateErrType.add(typeName.get(1));
+                                }
+                                if(!unfortunateErrType_.contains(typeName.get(1))){
+                                    unfortunateErrType_.add(typeName.get(1));
+                                }
+                            }
+                        } else {
+                            typeName = new ArrayList<String>(Arrays.asList("Res", descriptionToType(resp.getDescription())));
+                        }
+                    } else {
+                        if(errp){
+                            typeName = new ArrayList<String>(Arrays.asList("ad-hoc", "Err" + opId));
+                        }else{
+                            typeName = new ArrayList<String>(Arrays.asList("Res", "Res" + opId));
+                        }
+                    }
+                    if (ref != null
+                            && !typeNameReplacements.keySet().contains(ref)
+                            && ref.contains("/inline_")){
+                        typeNameReplacements.put(ref, typeName);
+                    }
+                }
+            }
+            if(operation.getRequestBody() != null){
+                RequestBody s = operation.getRequestBody();
+                String ref = s.get$ref();
+                ArrayList<String> typeName = new ArrayList<String>();
+                if( operation.getRequestBody().getContent()!=null
+                        && operation.getRequestBody().getContent().get("application/json")!=null
+                        && operation.getRequestBody().getContent().get("application/json").getSchema()!=null
+                        && operation.getRequestBody().getContent().get("application/json").getSchema().get$ref()!=null){
+                    ref = s.getContent().get("application/json").getSchema().get$ref();
+                }
+                if(s.getDescription() != null
+                        && s.getDescription().contains("-TypeName ")){
+                    typeName = new ArrayList<String>(Arrays.asList("Req" , descriptionToType(s.getDescription())));
+                } else {
+                    typeName = new ArrayList<String>(Arrays.asList("Req", "ReqBody" + opId));
+                }
+                if (ref != null
+                        && !typeNameReplacements.keySet().contains(ref)
+                        && ref.contains("/inline_")){
+                    typeNameReplacements.put(ref, typeName);
+                }
+            }
+        }
+        Map<String, ApiResponse> apiResponses = openAPI.getComponents().getResponses();
+        List<Map<String, Object>> status = new ArrayList<>();
+        if(apiResponses != null){
+            for (String key : apiResponses.keySet()) {
+                ApiResponse apiResponse = apiResponses.get(key);
+                status.add(errResp2status(apiResponse, schemas, null));
+            }
+        }
+        additionalProperties.put("status", status);
+        return unfortunateErrType_;
     }
     @Override
     public CodegenOperation fromOperation(String resourcePath, String httpMethod, Operation operation, Map<String, Schema> definitions, OpenAPI openAPI) {
@@ -698,6 +842,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
         List<String> func = pathToFuncType(op.path, op.allParams);
         List<Boolean> args = new ArrayList<Boolean>();
         Map<String, Schema> schemas = new HashMap<String, Schema>();
+        op.operationId = camelize(op.operationId.replaceAll("\\s+",""), true);
         if(openAPI.getComponents() != null && openAPI.getComponents().getSchemas() != null){
             schemas = openAPI.getComponents().getSchemas();
         }
@@ -751,6 +896,8 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
             returnType = "(" + returnType + ")";
         }
 
+        List<String> uets = unfortunateErrTypeOp.get(resourcePath);
+
         List<String> errStatus = new ArrayList<>();
         List<Map<String, Object>> adhocStatus = new ArrayList<>();
         List<Integer> adStatusCode = new ArrayList<>();
@@ -800,10 +947,13 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                         }
                     }
                 }
+                if(key.equals("default")){
+                    break;
+                }
                 if(Integer.parseInt(key)/100 == 2){
                     if(s.getExample() != null){
                         Object ex = s.getExample();
-                        String example = returnType + makeExEnvelope(ex);
+                        String example;
                         if (typeMapping.containsKey(s.getType())){
                             example = ex.toString();
                         } else {
@@ -825,23 +975,31 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                 }
             }
         }
+        List<String> errs = new ArrayList<String>(errStatus);
+        errs.addAll(uets);
         if(exExist){
-            op.vendorExtensions.put("x-example-type", "Maybe " + returnType + " -> " + "Handler (Envelope '" + errStatus.toString() + " " + returnType + ")");
+            op.vendorExtensions.put("x-example-type", "Maybe " + returnType + " -> " + "Handler (Envelope '" + errs.toString() + " " + returnType + ")");
         }
         op.vendorExtensions.put("x-ad-hocStatus", adhocStatus);
         op.vendorExtensions.put("x-additionalStatusCode", adStatusCode);
 
+        for(String uet : uets){
+            not2xx = true;
+            path.add("Throws " + camelize(fixModelChars(uet)));
+        }
         if(!not2xx){
             path.add("NoThrow");
         }
 
         path.add("Verb '" + op.httpMethod.toUpperCase() + " " + op.responses.get(0).code + " '[JSON] " + returnType);
-        func.add("Handler (Envelope '" + errStatus.toString() + " " + returnType + ")");
+        func.add("Handler (Envelope '" + errs.toString() + " " + returnType + ")");
 
         List<Boolean> opIdLs = new ArrayList<Boolean>(Arrays.asList(new Boolean[op.operationId.length()]));
         op.vendorExtensions.put("x-opId-size", opIdLs);
         op.vendorExtensions.put("x-funcs", joinStrings(" -> ", func));
-        op.vendorExtensions.put("x-errStatus", errStatus.get(0));
+        if(errStatus.size()>0){
+            op.vendorExtensions.put("x-errStatus", errStatus.get(0));
+        }
         op.vendorExtensions.put("x-args", args);
         op.vendorExtensions.put("x-routeType", joinStrings(" :> ", path));
         op.vendorExtensions.put("x-formName", "Form" + camelize(op.operationId));
@@ -850,127 +1008,6 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
         }
 
         return op;
-    }
-
-    private String makeExEnvelope(Object ex){
-        if (ex instanceof String){
-            return " \"" + ex.toString().replace("\n","\\n") + "\"";
-        }else if (ex instanceof Integer
-                || ex instanceof Double) {
-            return " " + ex.toString();
-        }else if (ex instanceof Boolean) {
-            if ((Boolean) ex){
-                return " True";
-            }else{
-                return " False";
-            }
-        }
-
-        String example = "";
-        Object child = ex;
-        List<Object> next = new ArrayList<Object>();
-        List<String> listHead = new ArrayList<String>();
-        List<String> tail = new ArrayList<String>();
-        next.add(ex);
-        Boolean break2 = false;
-        while(next.size() != 0){
-            child = next.get(next.size()-1);
-            next.remove(next.size()-1);
-            while(child != null){
-                Integer nextsz=next.size();
-                if(child instanceof HashMap){
-                    List<String> done = new ArrayList<String>();
-                    Map<String, Object> childMap = (Map<String, Object>) child;
-                    for(String key : childMap.keySet()){
-                        done.add(key);
-                        if (childMap.get(key) instanceof Object[]) {
-                            ArrayList<Object> childls = new ArrayList<Object>(Arrays.asList((Object[]) childMap.get(key)));
-                            Map<String, Object> rest = new HashMap<String, Object>();
-                            for(String restKey : childMap.keySet()){
-                                if(!done.contains(restKey)){
-                                    rest.put(restKey, childMap.get(restKey));
-                                }
-                            }
-                            next.add(rest);
-                            next.add(childls.subList(1, childls.size()));
-                            listHead.add(", ");
-                            tail.add("]");
-                            example = example + " " + camelize(key) + " [";
-                            child = childls.get(0);
-                            break2 = true;
-                            break;
-                        }else if (childMap.get(key) instanceof HashMap) {
-                            Map<String, Object> rest = new HashMap<String, Object>();
-                            for(String restKey : childMap.keySet()){
-                                if(!done.contains(restKey)){
-                                    rest.put(restKey, childMap.get(restKey));
-                                }
-                            }
-                            next.add(rest);
-                            tail.add("}");
-                            example = example + " " + camelize(key) + " {";
-                            child = childMap.get(key);
-                            break2 = true;
-                            break;
-                        } else {
-                            example = example + makeExEnvelope_(" " + camelize(key) + " =", childMap.get(key));
-                        }
-                    }
-                } else if (child instanceof Object[]){
-                    ArrayList<Object> childls = new ArrayList<Object>(Arrays.asList((Object[]) child));
-                    for (Object el : childls){
-                        if (el instanceof Object[]) {
-                            next.add(childls.subList(1, childls.size()));
-                            example = example + listHead.get(listHead.size()-1) + "[";
-                            listHead.add(camelize(", "));
-                            tail.add("]");
-                            child = el;
-                            break2 = true;
-                            break;
-                        }else if (el instanceof HashMap) {
-                            next.add(childls.subList(1, childls.size()));
-                            example = example + listHead.get(listHead.size()-1) + " { ";
-                            child = childls.get(0);
-                            tail.add("}");
-                            break2 = true;
-                            break;
-                        } else {
-                            example = example + "[" + listHead.get(listHead.size()-1) + makeExEnvelope_(listHead.get(tail.size()-1), el) + "]";
-                        }
-                    }
-                }
-                if (next.size() == nextsz){
-                    child = null;
-                }
-            }
-            if(!break2){
-                break2 = false;
-                if(next.size() > 2){
-                String tailBracket = tail.remove(tail.size() -1);
-                example = example + tailBracket;
-                    if(tailBracket.equals("]")){
-                        listHead.remove(listHead.size() -1);
-                    }
-                }
-            }
-        }
-        return example;
-    }
-
-    private String makeExEnvelope_ (String pref, Object child){
-        if (child instanceof String){
-            return pref + " \"" + child.toString().replace("\n","\\n") + "\"";
-        }else if (child instanceof Integer
-                || child instanceof Double) {
-            return pref + " " + child.toString();
-        }else if (child instanceof Boolean) {
-            if ((Boolean) child){
-                return pref + " True";
-            }else{
-                return pref + " False";
-            }
-        }
-        return pref + "";
     }
 
     private String makeQueryListType(String type, String collectionFormat) {
