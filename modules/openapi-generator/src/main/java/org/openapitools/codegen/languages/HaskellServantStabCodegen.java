@@ -165,6 +165,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
          */
         supportingFiles.add(new SupportingFile("README.mustache", "", "README.md"));
         supportingFiles.add(new SupportingFile("stack.mustache", "", "stack.yaml"));
+        supportingFiles.add(new SupportingFile("JSONCompat.mustache", "", "JSONCompat.hs"));
         supportingFiles.add(new SupportingFile("Setup.mustache", "", "Setup.hs"));
 
         /*
