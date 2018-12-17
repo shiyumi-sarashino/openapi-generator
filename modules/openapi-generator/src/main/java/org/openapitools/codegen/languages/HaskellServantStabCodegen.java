@@ -321,7 +321,18 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
         if(openAPI.getComponents() != null
                 && openAPI.getComponents().getSchemas() != null
                 && openAPI.getPaths() != null){
-              Map<String, Schema> schemas = openAPI.getComponents().getSchemas();
+             Map<String, Schema> schemas = openAPI.getComponents().getSchemas();
+             for(String key : schemas.keySet()){
+                Schema s = schemas.get(key);
+                String ref = "#/components/schemas/" + key;
+                if(s.getDescription() != null
+                    && !typeNameReplacements.keySet().contains(ref)
+                    && !ref.contains("/inline_")){
+                    if(!descriptionToType(s.getDescription()).equals("")){
+                        typeNameReplacements.put(ref, new ArrayList<>(Arrays.asList("Schema", descriptionToType(s.getDescription()))));
+                    }
+                }
+             }
              if (openAPI.getPaths() != null) {
                  for (String pathname : openAPI.getPaths().keySet()) {
                      PathItem path = openAPI.getPaths().get(pathname);
@@ -638,7 +649,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                             }
                             final Map<String, Schema> innerPropMap = prop.getProperties();
                             if (prop instanceof ArraySchema
-                                || innerPropMap !=null){
+                                    || innerPropMap !=null){
                                 if(rest.isEmpty()){
                                     ArrayList<String> parent = example.get(example.size()-1);
                                     example.remove(example.size()-1);
@@ -699,11 +710,11 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
     private String makeErrEx_(Schema ex){
         if(ex.getExample() != null){
             if(ex instanceof StringSchema){
-                 return "(\"" + ex.getExample().toString().replace("\n", "\\n").replace("\\\"", "\\\\\"").replace("\"", "\\\"") + "\" :: Text)";
+                return "(\"" + ex.getExample().toString().replace("\n", "\\n").replace("\\\"", "\\\\\"").replace("\"", "\\\"") + "\" :: Text)";
             }else if(ex instanceof IntegerSchema){
-                 return "(" + ex.getExample().toString() + " :: Int)";
+                return "(" + ex.getExample().toString() + " :: Int)";
             }else if(ex instanceof NumberSchema){
-                 return "(" + ex.getExample().toString() + " :: Double)";
+                return "(" + ex.getExample().toString() + " :: Double)";
             }else if(ex instanceof BooleanSchema){
                 if(ex.getExample().toString().equals("true")){
                     return "(True :: Bool)";
@@ -761,13 +772,13 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                     if(schm instanceof ArraySchema){
                         ArraySchema arraySchema = (ArraySchema) schm;
                         if (arraySchema.getItems().get$ref() != null){
-                          ref = arraySchema.getItems().get$ref();
+                            ref = arraySchema.getItems().get$ref();
                         }
                     }else if(resp.getContent().get("application/json").getSchema().get$ref()==null){
                         ref = resp.getContent().get("application/json").getSchema().get$ref();
                     }
                     if(resp.getDescription() != null
-                        && resp.getDescription().contains(type)){
+                            && resp.getDescription().contains(type)){
                         if(errp){
                             String errType = descriptionToErrTypeIIFnotAdHoc(resp.getDescription());
                             if(errType.equals("ad-hoc")){
@@ -796,7 +807,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                     }
                     if (ref != null
                             && !typeNameReplacements.keySet().contains(ref)
-                            && ref.contains("/inline_")){
+                            && (ref.contains("/inline_") || (resp.getDescription() != null && resp.getDescription().contains("-TypeName")))){
                         typeNameReplacements.put(ref, typeName);
                     }
                 }
@@ -819,7 +830,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                 }
                 if (ref != null
                         && !typeNameReplacements.keySet().contains(ref)
-                        && ref.contains("/inline_")){
+                        && (ref.contains("/inline_") || (s.getDescription() != null && s.getDescription().contains("-TypeName")))){
                     typeNameReplacements.put(ref, typeName);
                 }
             }
