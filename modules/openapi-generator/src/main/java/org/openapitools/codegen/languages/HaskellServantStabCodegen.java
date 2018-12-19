@@ -971,7 +971,6 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                                     && !s.getType().equals("set")
                                     && !s.getType().equals("object"))){
                             example = ex.toString();
-                            LOGGER.info(example + " " + s.getType());
                         } else {
                             example = Json.pretty(ex);
                         }
