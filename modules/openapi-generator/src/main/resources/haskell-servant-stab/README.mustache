@@ -8,20 +8,28 @@ Build follows the standard approach to building Stack-based projects.
 
 1. Install the [Haskell `stack` tool](http://docs.haskellstack.org/en/stable/README).
 2. Run `stack build` to build this package.
+3. Run `stack run {{host}} {{port}}` to run this app.
 
 However, response json will be wrapped with "data" (for an error response, it'll be "err").
 {{=<% %>=}}
 ```
 {"data": {{ResponseObject}}}
 ```
-<%={{ }}=%>
 
 To solve this probrem, following steps will modify servant-checked-exceptions' source.
 
-3. chmod +x `JSONCompat.sh`
-4. Run `JSONCompat.sh`
+1. chmod +x `JSONCompat.sh`
+2. Run `JSONCompat.sh`
+
+NOTE: JSONCompat.sh is depend on `sed` and `stack`.
+
+And again, follows standerd apploach.
+
+3. Run `stack build` to build this package.
+4. Run `stack run {{host}} {{port}}` to run this app.
+<%={{ }}=%>
 
 ## Others
 
-Please read the codes.
+Please read the code.
 

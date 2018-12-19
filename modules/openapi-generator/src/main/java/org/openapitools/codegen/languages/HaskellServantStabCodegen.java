@@ -165,7 +165,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
          */
         supportingFiles.add(new SupportingFile("README.mustache", "", "README.md"));
         supportingFiles.add(new SupportingFile("stack.mustache", "", "stack.yaml"));
-        supportingFiles.add(new SupportingFile("JSONCompat.mustache", "", "JSONCompat.hs"));
+        supportingFiles.add(new SupportingFile("JSONCompat.mustache", "", "JSONCompat.sh"));
         supportingFiles.add(new SupportingFile("Setup.mustache", "", "Setup.hs"));
 
         /*
@@ -966,8 +966,12 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                     if(s.getExample() != null){
                         Object ex = s.getExample();
                         String example;
-                        if (typeMapping.containsKey(s.getType())){
+                        if (typeMapping.containsKey(s.getType())
+                                && (!s.getType().equals("array")
+                                    && !s.getType().equals("set")
+                                    && !s.getType().equals("object"))){
                             example = ex.toString();
+                            LOGGER.info(example + " " + s.getType());
                         } else {
                             example = Json.pretty(ex);
                         }
