@@ -294,7 +294,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
         supportingFiles.add(new SupportingFile("haskell-servant-codegen.mustache", "", cabalName + ".cabal"));
         supportingFiles.add(new SupportingFile("API.mustache", "src/" + apiName, "API.hs"));
         supportingFiles.add(new SupportingFile("Types.mustache", "src/" + apiName, "Types.hs"));
-        supportingFiles.add(new SupportingFile("Main.mustache", "src/", "Main.hs"));
+        supportingFiles.add(new SupportingFile("Main.mustache", "app/", "Main.hs"));
 
 
         additionalProperties.put("title", apiName);
@@ -915,6 +915,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
         List<Integer> adStatusCode = new ArrayList<>();
         boolean not2xx = false;
         boolean exExist = false;
+        boolean primitivep = false;
         ApiResponses resps = operation.getResponses();
 
         for(String key : resps.keySet()){
@@ -971,11 +972,15 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
                                     && !s.getType().equals("set")
                                     && !s.getType().equals("object"))){
                             example = ex.toString();
+                            primitivep=true;
                         } else {
                             example = Json.pretty(ex);
                         }
                         if(example==null || example.equals("")){
                             op.vendorExtensions.put("x-example", "pureSuccEnvelope ()");
+                        }else if(primitivep){
+                            op.vendorExtensions.put("x-example", "pureSuccEnvelope \"" + example.replace("\n", "\\n").replace("\\\"", "\\\\\"").replace("\"", "\\\"") + "\"");
+                            exExist = true;
                         }else{
                             op.vendorExtensions.put("x-example", "pureEnvelope . decode . fromString $ \"" + example.replace("\n", "\\n").replace("\\\"", "\\\\\"").replace("\"", "\\\"") + "\"");
                             if(arrayp){
@@ -992,7 +997,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
         }
         List<String> errs = new ArrayList<String>(errStatus);
         errs.addAll(uets);
-        if(exExist){
+        if(exExist && !primitivep){
             op.vendorExtensions.put("x-example-type", "Maybe " + returnType + " -> " + "Handler (Envelope '" + errs.toString() + " " + returnType + ")");
         }
         op.vendorExtensions.put("x-ad-hocStatus", adhocStatus);
@@ -1096,14 +1101,15 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
         }
 
         // From the model name, compute the prefix for the fields.
-        String prefix = camelize(model.classname, true);
+        String prefix = "";
+        // String prefix = camelize(model.classname, true);
         for(CodegenProperty prop : model.vars) {
             if(prop.allowableValues != null) {
                 for(Integer i = 0; i < prop._enum.size(); i++){
                     prop._enum.set(i, fixOperatorChars(prop._enum.get(i)));
                 }
             }
-            prop.name = toVarName(prefix + camelize(fixOperatorChars(prop.name)));
+            prop.name = toVarName(firstLetterToLower(prefix + camelize(fixOperatorChars(prop.name))));
             ArrayList<String> propType = typeNameReplacements.get("#/components/schemas/" + prop.getDatatype());
             if(propType != null){
                 prop.setDatatype(propType.get(1));
@@ -1127,7 +1133,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
 
         //String modelType = ((ModelImpl)  schema).getType();
         String modelType = schema.getType();
-        if(!"object".equals(modelType) && typeMapping.containsKey(modelType)) {
+        if(!"object".equals(modelType) && typeMapping.containsKey(modelType) && model.allowableValues == null) {
             String newtype = typeMapping.get(modelType);
             model.vendorExtensions.put("x-customNewtype", newtype);
         }
