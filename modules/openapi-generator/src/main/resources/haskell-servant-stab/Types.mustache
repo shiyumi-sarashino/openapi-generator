@@ -58,7 +58,7 @@ instance ErrStatus {{name}} where
 {{/vendorExtensions.x-ad-hocStatus}}{{/operation}}{{/operations}}{{/apis}}{{/apiInfo}}
 {{#models}}{{#model}}{{^vendorExtensions.x-errType}}{{^vendorExtensions.x-arr}}
 -- | {{description}} {{operationId}}
-<!-- {{#isEnum}}{{#allowableValues}}{{#enumVars}}{{name}}{{value}}{{/enumVars}}{{/allowableValues}}{{/isEnum}} -->
+--<!-- {{#isEnum}}{{#allowableValues}}{{#enumVars}}{{name}}{{value}}{{/enumVars}}{{/allowableValues}}{{/isEnum}} -->
 {{^vendorExtensions.x-customNewtype}}{{^parent}}data {{classname}} = {{classname}}
   { {{#vars}}{{& name}} :: {{#_enum}}{{& vendorExtensions.x-nameUpper}}{{/_enum}}{{^_enum}}{{datatype}}{{/_enum}} -- ^ {{& description}}{{#hasMore}}
   , {{/hasMore}}{{/vars}}

@@ -45,6 +45,7 @@ import org.openapitools.codegen.CodegenType;
 import org.openapitools.codegen.DefaultCodegen;
 import org.openapitools.codegen.SupportingFile;
 import org.openapitools.codegen.utils.ModelUtils;
+import static org.openapitools.codegen.utils.StringUtils.camelize;
 import org.openapitools.codegen.InlineModelResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
