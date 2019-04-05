@@ -193,6 +193,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
         typeMapping.put("array", "List");
         typeMapping.put("set", "Set");
         typeMapping.put("boolean", "Bool");
+        typeMapping.put("bool", "Bool");
         typeMapping.put("string", "Text");
         typeMapping.put("integer", "Int");
         typeMapping.put("long", "Integer");
@@ -269,7 +270,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
         if (title == null) {
             title = "OpenAPI";
         } else {
-            title = title.trim();
+            title = title.replace(' ', '-');
             if (title.toUpperCase(Locale.ROOT).endsWith("API")) {
                 title = title.substring(0, title.length() - 3);
             }
@@ -313,7 +314,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
             String c = (String) replacementChars[i];
             Map<String, Object> o = new HashMap<>();
             o.put("char", c);
-            o.put("replacement", "'" + specialCharReplacements.get(c));
+            o.put("replacement", specialCharReplacements.get(c));
             o.put("hasMore", i != replacementChars.length - 1);
             replacements.add(o);
         }
@@ -725,8 +726,20 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
             }else{
                 LOGGER.warn("cannot determine example type(if this message is called, it'll be ObjectSchema or ArraySchema.) example: " + ex.getExample().toString());
             }
+        } else {
+            LOGGER.warn("getExample is null");
+            if(ex instanceof StringSchema){
+                return "(\"\" :: Text)";
+            }else if(ex instanceof IntegerSchema){
+                return "(0 :: Int)";
+            }else if(ex instanceof NumberSchema){
+                return "(0 :: Double)";
+            }else if(ex instanceof BooleanSchema){
+                return "(True :: Bool)";
+            }else{
+                LOGGER.warn("cannot determine example type(if this message is called, it'll be ObjectSchema or ArraySchema.) example: " + ex.getExample().toString());
+            };
         }
-        LOGGER.warn("getExample is null at schema: " + ex.toString());
         return null;
     }
 
@@ -1063,7 +1076,7 @@ public class HaskellServantStabCodegen extends DefaultCodegen implements Codegen
         for (char c : name.toCharArray()) {
             String cString = String.valueOf(c);
             if (specialCharReplacements.containsKey(cString)) {
-                sb.append("'");
+                //sb.append("'");
                 sb.append(specialCharReplacements.get(cString));
             } else {
                 sb.append(c);
